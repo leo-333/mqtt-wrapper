@@ -30,10 +30,12 @@ oauth.register(
 @app.get('/')
 async def homepage(request: Request):
     user = request.session.get('user')
+    #user = json.dump(user)
+    log.debug(user)
     log.debug('user in homepage: %s' % type(user))
 
     if user:
-        data = user
+        data = json.dumps(user)
         data = jsonable_encoder(data)
         #html = (
         #    '<pre>{data}</pre>'
