@@ -37,11 +37,11 @@ async def homepage(request: Request):
     if user:
         data = json.dumps(user)
         data = jsonable_encoder(data)
-        #html = (
-        #    '<pre>{data}</pre>'
-        #    '<a href="/logout">logout</a>'
-        #)
-        html=data
+        html = (
+            '<pre>{data}</pre>'
+            '<a href="/logout">logout</a>'
+        )
+        #html=data
         return HTMLResponse(html)
     return HTMLResponse('<a href="/login">login</a>')
 
