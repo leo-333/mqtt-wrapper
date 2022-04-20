@@ -8,6 +8,8 @@ ENV PATH="/app/.venv/bin:$PATH"
 RUN pip install -r requirements.txt
 
 EXPOSE 8000
-COPY ./app /app
+COPY ./app/src /app/src
 
-CMD ["uvicorn", "testStarlette:app", "--reload", "--host", "0.0.0.0","--port","2376"]
+WORKDIR /app/src
+
+CMD ["uvicorn", "testStarlette:app", "--app-dir", "/app/src", "--reload", "--host", "0.0.0.0","--port","8000"]
