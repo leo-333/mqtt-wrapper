@@ -1,38 +1,52 @@
-from fastapi import FastAPI, Websocket
-from pydantic import BaseModel
+from fastapi import FastAPI, WebSocket, status, Cookie, Query, Depends
+from typing import Optional
 import requests
 
 app = FastAPI()
 
 KEYCLOAK_URL = "https://auth.csp-staging.eng-softwarelabs.de"
+RESOURCE_OWNER_MAIL = "jonas.leitner@eng-its.de"
+CLIENT_ID = "mqtt-wrapper"
 DEVICE_CODE_ENDPOINT = "/auth/realms/default/protocol/openid-connect/auth/device"
 VERNEMQ_URL = "wss://mqtt.csp-staging.eng-softwarelabs.de"
 
-class DeviceCodeResponse(BaseModel):
-    AuthURL: str
-    DeviceCode: str
-
 # HTTP Endpoint for getting an Device Code from Keycloak
 @app.get("/auth/device")
-async def getDeviceCode(req):
+async def getDeviceCode():
     # Proxy Request to Keycloak
-    keycloakRes: DeviceCodeResponse = await requests.get(KEYCLOAK_URL + DEVICE_CODE_ENDPOINT)
+    keycloakRes = requests.post(KEYCLOAK_URL + DEVICE_CODE_ENDPOINT, {"client_id": CLIENT_ID}).json()
 
     # Mail Auth URL to the User
-    await sendAuthMail(keycloakRes.AuthURL)
+    if sendAuthMail(keycloakRes.verification_uri_complete):
+        # Return Keycloak Response to Device
+        return keycloakRes
+    else:
+        return {"error": "sending mail failed"}
 
-    # Return Keycloak Response to Device
-    return keycloakRes
+async def get_cookie_or_token(
+    websocket: WebSocket,
+    session: Optional[str] = Cookie(None),
+    token: Optional[str] = Query(None),
+):
+    #if session is None and token is None:
+    #    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+    return session or token
+
 
 # WS Endpoint for MQTT Requests from the Device
 @app.websocket("/mqtt")
-async def proxyMqtt(websocket: Websocket):
+async def websocket_endpoint(
+    websocket: WebSocket
+):
     await websocket.accept()
     while True:
         data = await websocket.receive_text()
-        
+        #print(websocket)
+        print(websocket.headers["Cookie"])
+        print(data)
+        continue
         # Check Header for JWT
-        if not websocket.header.jwt:
+        if not websocket.Headers:
             await websocket.send_text("JWT Missing")
             continue
 

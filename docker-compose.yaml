@@ -2,7 +2,7 @@ version: '3.7'
 
 services:
   app:
-    image: mqtt-wrapper:latest
+    image: mqtt-wrapper:0.1
     build:
       context: .
     ports:
