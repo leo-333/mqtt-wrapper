@@ -12,4 +12,4 @@ COPY ./app /app/src
 
 WORKDIR /app/src
 
-CMD ["uvicorn", "testStarlette:app", "--app-dir", "/app/src", "--reload", "--host", "0.0.0.0","--port","8000"]
+CMD ["uvicorn", "main:app", "--app-dir", "/app/src", "--reload", "--host", "0.0.0.0","--port","8000"]
