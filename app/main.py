@@ -1,6 +1,8 @@
 from fastapi import FastAPI, WebSocket, status, Cookie, Query, Depends
 from typing import Optional
 import requests
+import python_jwt as jwt
+import smtplib, ssl
 
 app = FastAPI()
 
@@ -8,7 +10,16 @@ KEYCLOAK_URL = "https://auth.csp-staging.eng-softwarelabs.de"
 RESOURCE_OWNER_MAIL = "jonas.leitner@eng-its.de"
 CLIENT_ID = "mqtt-wrapper"
 DEVICE_CODE_ENDPOINT = "/auth/realms/default/protocol/openid-connect/auth/device"
+PUB_KEY_ENDPOINT = "/auth/realms/default"
 VERNEMQ_URL = "wss://mqtt.csp-staging.eng-softwarelabs.de"
+
+keycloakPubKey = None
+
+@app.on_event("startup")
+async def startup_event():
+    # Pull the PubKey from Keycloak
+    keycloakRes = requests.get(KEYCLOAK_URL + PUB_KEY_ENDPOINT)
+    keycloakPubKey = keycloakRes.json()['public_key']
 
 # HTTP Endpoint for getting an Device Code from Keycloak
 @app.get("/auth/device")
@@ -64,12 +75,27 @@ async def websocket_endpoint(
         await websocket.send_text(vernemqRes)
 
 
-def verifyJWT(jwt):
+def verifyJWT(token):
     # Check if JWT is valid by verifying its signature with Keycloaks PubKey
-    return True
+    header, claims = jwt.verify_jwt(token, keycloakPubKey, ['RS256'])
+    print(header)
+    print(claims)
+    
 
 async def sendAuthMail(AuthURL):
     # Send an Authorization Email containing the Link returned by Keycloak to the User
+
+
+    port = 465  # For SSL
+    password = input("Type your password and press enter: ")
+
+    # Create a secure SSL context
+    context = ssl.create_default_context()
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", port, context=context) as server:
+        server.login("my@gmail.com", password)
+    # TODO: Send email here
+
     return True
 
 async def proxyRequestToVerneMQ(data):
