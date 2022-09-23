@@ -18,3 +18,5 @@ uvloop==0.14.0
 requests==2.27.1
 python-jwt==3.3.3
 websocket==0.2.1
+websocket-client==1.4.1
+paho-mqtt==1.6.1
