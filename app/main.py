@@ -35,6 +35,7 @@ async def startup_event():
         print('Keycloak seems to be down, exiting...')
         exit(1)
 
+
 # HTTP Endpoint for getting an Device Code from Keycloak
 @app.get("/auth/device")
 async def get_device_code():
@@ -65,34 +66,38 @@ async def websocket_endpoint(
     await websocket.accept()
     while True:
         try:
-            # Accept the initial MQTT Connection
-            #await websocket.send_text("CONNACK")
-            # Wait for the JWT
-            data = await websocket.receive()
-            print(data)
             # Check Header for JWT
             cookie = None
             try:
                 cookie = websocket.headers["Cookie"]
             except KeyError:
-                print("Cookie not found")
-                await websocket.send_text("JWT Missing")
-                continue
+                print("JWT missing")
+                print("Send CONNACK with Result Code 4 - Authorization invalid")
+                await websocket.send_bytes(create_connack_response(4))
 
             # Verify Authorization
             if not verify_jwt(cookie):
-                await websocket.send_text("JWT invalid")
-                continue
+                # JWT invalid, send
+                print("JWT invalid")
+                print("Send CONNACK with Result Code 5 - Not Authorized")
+                await websocket.send_bytes(create_connack_response(5))
+                break
 
+            # JWT valid, send CONNACK
+            print("JWT valid")
+            print("Send CONNACK with Result Code 0")
+            await websocket.send_bytes(create_connack_response(0))
 
-            # JWT valid, lets accept the connection
-            await websocket.send_text("CONNACK")
+            # Authorization to MQTT-Wrapper was successful
+            # Enter the Proxy-Loop
+            while True:
+                data = await websocket.receive_bytes()
+                # Proxy MQTT Request to VerneMQ
+                vernemq_res = await proxy_request_to_vernemq(data)
 
-            # Proxy MQTT Request to VerneMQ
-            # vernemq_res = await proxy_request_to_vernemq(data)
+                # Return VerneMQ Response
+                await websocket.send_bytes(vernemq_res)
 
-            # Return VerneMQ Response
-            await websocket.send_text(vernemq_res.json())
         except WebSocketDisconnect:
             print("Client has disconnected.")
             break
@@ -108,6 +113,19 @@ def verify_jwt(token):
         return False
 
     return True
+
+
+def create_connack_response(rc):
+    # create bytecodes for mqtt payloads here: https://npm.runkit.com/mqtt-packet
+    if rc == 0:
+        return b'\x20\x02\x00\x00'
+    elif rc == 4:
+        return b'\x20\x02\x00\x04'
+    elif rc == 5:
+        b'\x20\x02\x00\x05'
+    else:
+        raise Exception("invalid return code")
+    return
 
 
 def send_auth_mail(auth_url):

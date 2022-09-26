@@ -17,12 +17,17 @@ def on_message(client, userdata, msg):
     print(msg.topic + " " + str(msg.payload))
 
 
+def on_connect_fail(client, userdata):
+    print("failed")
+
+
 client = mqtt.Client(transport="websockets")
 client.enable_logger()
-client.ws_set_options(path="/mqtt")
+client.ws_set_options(path="/mqtt")#, headers={'Cookie': jwt})
 client.on_connect = on_connect
 client.on_message = on_message
-client.username_pw_set(username="", password=jwt)
+client.on_connect_fail = on_connect_fail
+client.on_log = print
 
 client.connect("localhost", 8000, 60)
 
