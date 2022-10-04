@@ -16,7 +16,8 @@ websockets==8.*
 wrapt==1.11.2
 uvloop==0.14.0
 requests==2.27.1
-python-jwt==3.3.3
+pyjwt==2.5.0
 websocket==0.2.1
 websocket-client==1.4.1
 paho-mqtt==1.6.1
+cryptography==37.0.4

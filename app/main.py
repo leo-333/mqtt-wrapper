@@ -1,9 +1,13 @@
+from base64 import b64decode
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Cookie, Query, Depends
 from typing import Optional
 import requests
-import python_jwt as jwt
+import jwt
+from cryptography.hazmat.primitives import serialization
 import smtplib, ssl
 from email.mime.text import MIMEText
+import json
 
 app = FastAPI()
 
@@ -28,10 +32,13 @@ keycloak_pub_key = None
 async def startup_event():
     global keycloak_pub_key
     # Pull the PubKey from Keycloak
-    keycloak_res = requests.get(KEYCLOAK_URL + PUB_KEY_ENDPOINT)
-    if keycloak_res.status_code == 200:
-        keycloak_pub_key = keycloak_res.json()['public_key']
-    else:
+    try:
+        r = requests.get(KEYCLOAK_URL + PUB_KEY_ENDPOINT)
+        r.raise_for_status()
+        key_der_base64 = r.json()["public_key"]
+        key_der = b64decode(key_der_base64.encode())
+        keycloak_pub_key = serialization.load_der_public_key(key_der)
+    except:
         print('Keycloak seems to be down, exiting...')
         exit(1)
 
@@ -105,15 +112,13 @@ async def websocket_endpoint(
 
 def verify_jwt(token):
     # Check if JWT is valid by verifying its signature with Keycloaks PubKey
+    global keycloak_pub_key
     try:
-        header, claims = jwt.verify_jwt(token, keycloak_pub_key, ['RS256'])
-        print(header)
-        print(claims)
+        payload = jwt.decode(token, keycloak_pub_key, algorithms=["RS256"])
     except:
         return False
 
     return True
-
 
 def create_connack_response(rc):
     # create bytecodes for mqtt payloads here: https://npm.runkit.com/mqtt-packet
@@ -122,10 +127,9 @@ def create_connack_response(rc):
     elif rc == 4:
         return b'\x20\x02\x00\x04'
     elif rc == 5:
-        b'\x20\x02\x00\x05'
+        return b'\x20\x02\x00\x05'
     else:
         raise Exception("invalid return code")
-    return
 
 
 def send_auth_mail(auth_url):
