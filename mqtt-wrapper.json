@@ -19,8 +19,8 @@
     "protocol": "openid-connect",
     "attributes": {
         "saml.assertion.signature": "false",
-        "saml.multivalued.roles": "false",
         "saml.force.post.binding": "false",
+        "saml.multivalued.roles": "false",
         "saml.encrypt": "false",
         "oauth2.device.authorization.grant.enabled": "true",
         "backchannel.logout.revoke.offline.tokens": "false",
@@ -40,8 +40,8 @@
         "saml.onetimeuse.condition": "false"
     },
     "authenticationFlowBindingOverrides": {
-        "direct_grant": "09f3812a-0dce-4129-9b0f-036a1ebc1648",
-        "browser": "09f3812a-0dce-4129-9b0f-036a1ebc1648"
+        "direct_grant": "3e6c7fd1-9be6-4e44-960e-b64145576e01",
+        "browser": "0eaa6229-f722-45d0-9ebb-7fdc4ae17463"
     },
     "fullScopeAllowed": true,
     "nodeReRegistrationTimeout": -1,

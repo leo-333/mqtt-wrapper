@@ -1,7 +1,45 @@
+import time
+
 import requests
 import paho.mqtt.client as mqtt
+import requests
 
-jwt = "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJqSkNFS0hrVkpBR09DSExyRXAzOEJwM294YUpwZkxBQ3FvWlN6LXpRLTdzIn0.eyJleHAiOjE2NjYyODIzODQsImlhdCI6MTY2NDg4NjgzMSwiYXV0aF90aW1lIjoxNjY0ODg2ODE5LCJqdGkiOiJmYWJiNmYzZS1kNTMzLTRkZjYtYmIxOS0wOGFkOWE2M2I2YzYiLCJpc3MiOiJodHRwczovL2F1dGguY3NwLXN0YWdpbmcuZW5nLXNvZnR3YXJlbGFicy5kZS9hdXRoL3JlYWxtcy9kZWZhdWx0Iiwic3ViIjoiYjliNmY1MWMtYWQ3MS00ZTcxLTkyNzUtNjFiY2RmOWMyM2U1IiwidHlwIjoiQmVhcmVyIiwiYXpwIjoibXF0dC13cmFwcGVyIiwic2Vzc2lvbl9zdGF0ZSI6IjY5OGFjYzg2LTg5MzgtNDI4Zi04Y2Y4LTg2YmU0YmEwZDNhMCIsImFjciI6IjEiLCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IkpvbmFzIExlaXRuZXIiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJqb25hcy5sZWl0bmVyIiwiZ2l2ZW5fbmFtZSI6IkpvbmFzIiwiZmFtaWx5X25hbWUiOiJMZWl0bmVyIiwiZW1haWwiOiJqb25hcy5sZWl0bmVyQGVuZy1pdHMuZGUifQ.K7jnYvbtWU_Y90RtSF87BBRDvghaTSVcfBGDaz9Sns7OwzICHD5LCwIiiGFDMRKpka01Syi6GyWO0bMUqHfitRn6t4VV2pTMqZ5H2v10OrVVSyDDKy57RvstleGeb9qj4l8LwlOodMhfRF6Ie4P9LSJYpo8nUThLHv-oRxfUXkyiMlvUKaj7kdhlbKizZeuBMjkpXQOTFraygv2wwDhT7jiFPVtlXC1s6BMxfcrdxicOdc27P2UIWZRoZZE6MSQxGvyTzWcN83l_5Aqz1EsSzam49uwHx0FcJeq-uTzusnPZY9MXU6p_mS2UMZejIc5JuLKsaaX5e6uDmFcDB6eT-A"
+URL = 'http://localhost'
+PORT = 8000
+ENDPOINT = URL + ':' + str(PORT)
+
+jwt = None
+device_code = None
+
+
+def get_jwt(endpoint):
+    global jwt, device_code
+    print('Calling MQTT-Wrapper to receive a Device Code & trigger Auth process...')
+    device_code_res = requests.get(endpoint + '/auth/device').json()
+    device_code = device_code_res['device_code']
+    print('Device Code received & saved in Memory: ' + device_code)
+
+    print("Requesting JWT from MQTT-Wrapper...")
+    status_code = 400
+    token_res = None
+    while status_code != 200:
+        payload = {'device_code': device_code}
+        token_res = requests.request(
+            "POST",
+            endpoint + '/auth/token',
+            json=payload
+        )
+        status_code = token_res.status_code
+
+        if status_code != 200:
+            print("Device not yet authorized, retrying...")
+            # TODO set to 600 for Production
+            time.sleep(30)
+
+    print('JWT received')
+    print(token_res.json())
+    jwt = token_res.json()['access_token']
+
 
 # The callback for when the client receives a CONNACK response from the server.
 def on_connect(client, userdata, flags, rc):
@@ -29,6 +67,9 @@ client.on_message = on_message
 client.on_connect_fail = on_connect_fail
 client.on_log = print
 
-client.connect("localhost", 8000, 60)
+if jwt is None:
+    get_jwt(ENDPOINT)
+
+client.connect(URL, PORT, 60)
 
 client.loop_forever()

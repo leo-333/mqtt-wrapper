@@ -1,20 +1,22 @@
 from base64 import b64decode
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Cookie, Query, Depends
-from typing import Optional
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
+from pydantic import BaseModel
 import requests
 import jwt
 from cryptography.hazmat.primitives import serialization
 import smtplib, ssl
 from email.mime.text import MIMEText
-import json
 
 app = FastAPI()
 
+# TODO set all of these as ENV-VARs
 KEYCLOAK_URL = "https://auth.csp-staging.eng-softwarelabs.de"
 RESOURCE_OWNER_MAIL = "jonas.leitner@eng-its.de"
 CLIENT_ID = "mqtt-wrapper"
-DEVICE_CODE_ENDPOINT = "/auth/realms/default/protocol/openid-connect/auth/device"
+REALM = "default"
+DEVICE_CODE_ENDPOINT = "/auth/realms/" + REALM + "/protocol/openid-connect/auth/device"
+TOKEN_ENDPOINT = "/auth/realms/" + REALM + "/protocol/openid-connect/token"
 PUB_KEY_ENDPOINT = "/auth/realms/default"
 VERNEMQ_URL = "wss://mqtt.csp-staging.eng-softwarelabs.de"
 
@@ -43,29 +45,45 @@ async def startup_event():
         exit(1)
 
 
-# HTTP Endpoint for getting an Device Code from Keycloak
+# HTTP Endpoint for getting a Device Code from Keycloak
 @app.get("/auth/device")
 async def get_device_code():
     # Proxy Request to Keycloak
     keycloak_res = requests.post(KEYCLOAK_URL + DEVICE_CODE_ENDPOINT, {"client_id": CLIENT_ID}).json()
-
     # Mail Auth URL to the User
-    send_auth_mail(keycloak_res.verification_uri_complete)
+    send_auth_mail(keycloak_res['verification_uri_complete'])
     # Return Keycloak Response to Device
     return keycloak_res
 
 
-async def get_cookie_or_token(
-        websocket: WebSocket,
-        session: Optional[str] = Cookie(None),
-        token: Optional[str] = Query(None),
-):
-    # if session is None and token is None:
-    #    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-    return session or token
+# HTTP Endpoint for getting a Token from Keycloak using the Device Code (works only after Authorization from User)
+class TokenReq(BaseModel):
+    device_code: str
+
+
+@app.post("/auth/token")
+async def get_token(token_req: TokenReq, res: Response):
+    print(token_req)
+    payload = 'client_id=' + CLIENT_ID + '&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&device_code=' + token_req.device_code
+
+    keycloak_res = requests.request(
+        "POST",
+        KEYCLOAK_URL + TOKEN_ENDPOINT,
+        headers={
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        data=payload
+    )
+    print(keycloak_res.status_code)
+    print(keycloak_res.json())
+
+    res.status_code = keycloak_res.status_code
+
+    return keycloak_res.json()
 
 
 # WS Endpoint for MQTT Requests from the Device
+# TODO check for JWT expiration once in a while
 @app.websocket("/mqtt")
 async def websocket_endpoint(
         websocket: WebSocket
@@ -134,20 +152,22 @@ def create_connack_response(rc):
 
 def send_auth_mail(auth_url):
     # Send an Authorization Email containing the Link returned by Keycloak to the User
-    msg = MIMEText(auth_url)
+    print("Sending new Auth URL:\n" + auth_url)
+    try:
+        msg = MIMEText(auth_url)
 
-    msg['Subject'] = 'New MQTT Authorization Request'
-    msg['From'] = SMTP_SENDER_EMAIL
-    msg['To'] = SMTP_RECEIVERS[0]
+        msg['Subject'] = 'New MQTT Authorization Request'
+        msg['From'] = SMTP_SENDER_EMAIL
+        msg['To'] = SMTP_RECEIVERS[0]
 
-    # Create a secure SSL context
-    context = ssl.create_default_context()
+        # Create a secure SSL context
+        context = ssl.create_default_context()
 
-    with smtplib.SMTP_SSL(SMTP_PROXY, SMTP_PORT, context=context) as server:
-        server.login(SMTP_SENDER_EMAIL, SMTP_PASSWORD)
-        server.sendmail(SMTP_SENDER_EMAIL, SMTP_RECEIVERS, msg.as_string())
-
-    print("Send new Auth URL: " + auth_url)
+        with smtplib.SMTP_SSL(SMTP_PROXY, SMTP_PORT, context=context) as server:
+            server.login(SMTP_SENDER_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_SENDER_EMAIL, SMTP_RECEIVERS, msg.as_string())
+    except smtplib.SMTPAuthenticationError:
+        print("SMTP Auth failed")
 
 
 async def proxy_request_to_vernemq(data):
