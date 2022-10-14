@@ -9,3 +9,11 @@ services:
       - '8000:8000'
     volumes:
     - ./app:/app/src
+  vernemq:
+    image: vernemq/vernemq:1.12.3-alpine
+    environment:
+      DOCKER_VERNEMQ_ALLOW_ANONYMOUS: 'on'
+      DOCKER_VERNEMQ_ACCEPT_EULA: 'yes'
+    ports:
+      - '8080:8080'
+      - '1883:1883'

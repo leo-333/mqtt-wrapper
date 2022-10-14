@@ -7,6 +7,12 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 import smtplib, ssl
 from email.mime.text import MIMEText
+# import paho.mqtt.client as mqtt
+from websocket import create_connection
+import ssl
+
+# Import local libs
+import utils
 
 app = FastAPI()
 
@@ -18,7 +24,8 @@ REALM = "default"
 DEVICE_CODE_ENDPOINT = "/auth/realms/" + REALM + "/protocol/openid-connect/auth/device"
 TOKEN_ENDPOINT = "/auth/realms/" + REALM + "/protocol/openid-connect/token"
 PUB_KEY_ENDPOINT = "/auth/realms/default"
-VERNEMQ_URL = "wss://mqtt.csp-staging.eng-softwarelabs.de"
+VERNEMQ_URL = "ws://vernemq"
+VERNEMQ_PORT = 8080
 
 # SMTP Email Credentials
 SMTP_SENDER_EMAIL = "noreply@dlr.de"
@@ -63,7 +70,6 @@ class TokenReq(BaseModel):
 
 @app.post("/auth/token")
 async def get_token(token_req: TokenReq, res: Response):
-    print(token_req)
     payload = 'client_id=' + CLIENT_ID + '&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&device_code=' + token_req.device_code
 
     keycloak_res = requests.request(
@@ -74,57 +80,91 @@ async def get_token(token_req: TokenReq, res: Response):
         },
         data=payload
     )
-    print(keycloak_res.status_code)
-    print(keycloak_res.json())
 
     res.status_code = keycloak_res.status_code
 
     return keycloak_res.json()
 
 
+# TODO refresh tokens endpoint - longer refresh expiration time
+
 # WS Endpoint for MQTT Requests from the Device
 # TODO check for JWT expiration once in a while
 @app.websocket("/mqtt")
 async def websocket_endpoint(
-        websocket: WebSocket
+        ws_client: WebSocket
 ):
-    await websocket.accept()
+    await ws_client.accept()
     while True:
+        ws_vernemq = None
         try:
             # Check Header for JWT
             cookie = None
-            try:
-                cookie = websocket.headers["Cookie"]
-            except KeyError:
+            print(ws_client.headers)
+            cookie = ws_client.headers["Cookie"]
+            print(cookie)
+            if cookie is None:
                 print("JWT missing")
                 print("Send CONNACK with Result Code 4 - Authorization invalid")
-                await websocket.send_bytes(create_connack_response(4))
+                await ws_client.send_bytes(utils.CONNACK_INVALID_AUTH)
+                break
 
             # Verify Authorization
             if not verify_jwt(cookie):
                 # JWT invalid, send
                 print("JWT invalid")
                 print("Send CONNACK with Result Code 5 - Not Authorized")
-                await websocket.send_bytes(create_connack_response(5))
+                await ws_client.send_bytes(utils.CONNACK_UNAUTHORIZED)
                 break
 
             # JWT valid, send CONNACK
             print("JWT valid")
-            print("Send CONNACK with Result Code 0")
-            await websocket.send_bytes(create_connack_response(0))
 
             # Authorization to MQTT-Wrapper was successful
+            initial_connection_data = await ws_client.receive_bytes()
+            print("Receiving data from client...")
+            print(initial_connection_data)
+
+            # # Create a Connection to VerneMQ
+            print("Creating WS Connection to VerneMQ...")
+            ws_vernemq = create_connection(VERNEMQ_URL + ':' + str(VERNEMQ_PORT))
+
+            print("Sending client-data to VerneMQ...")
+            await ws_vernemq.send_bytes(initial_connection_data)
+            print('Receiving answer from VerneMQ...')
+            initial_connection_answer = await ws_vernemq.receive_bytes()
+            print(initial_connection_answer)
+            print('Sending answer to client...')
+            await ws_client.send_bytes(initial_connection_answer)
+
+            # def on_message(client, userdata, msg):
+            #     # Proxy MQTT Request to VerneMQ
+            #     await websocket.send_bytes()
+            #
+            # client = mqtt.Client(transport="websockets")
+            # client.enable_logger()
+            # # client.ws_set_options(path="/mqtt")
+            # client.on_message = on_message
+            # client.on_connect = print
+            # client.on_connect_fail = print
+            # client.on_log = print
+            #
+            # client.connect(VERNEMQ_URL, VERNEMQ_PORT, 60)
+
             # Enter the Proxy-Loop
             while True:
-                data = await websocket.receive_bytes()
-                # Proxy MQTT Request to VerneMQ
-                vernemq_res = await proxy_request_to_vernemq(data)
+                data = await ws_client.receive_bytes()
+                print(data)
+                ws_vernemq.send_bytes(data)
+                answer = await ws_vernemq.receive_bytes()
+                print(answer)
+                await ws_client.send_bytes(answer)
 
-                # Return VerneMQ Response
-                await websocket.send_bytes(vernemq_res)
 
         except WebSocketDisconnect:
             print("Client has disconnected.")
+            if ws_vernemq is not None:
+                ws_vernemq.close()
             break
 
 
@@ -134,20 +174,10 @@ def verify_jwt(token):
     try:
         payload = jwt.decode(token, keycloak_pub_key, algorithms=["RS256"])
     except:
+        print("invalid jwt")
         return False
 
     return True
-
-def create_connack_response(rc):
-    # create bytecodes for mqtt payloads here: https://npm.runkit.com/mqtt-packet
-    if rc == 0:
-        return b'\x20\x02\x00\x00'
-    elif rc == 4:
-        return b'\x20\x02\x00\x04'
-    elif rc == 5:
-        return b'\x20\x02\x00\x05'
-    else:
-        raise Exception("invalid return code")
 
 
 def send_auth_mail(auth_url):

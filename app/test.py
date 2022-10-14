@@ -4,7 +4,8 @@ import requests
 import paho.mqtt.client as mqtt
 import requests
 
-URL = 'http://localhost'
+# TODO dynamically set protocol
+URL = 'localhost'
 PORT = 8000
 ENDPOINT = URL + ':' + str(PORT)
 
@@ -15,7 +16,7 @@ device_code = None
 def get_jwt(endpoint):
     global jwt, device_code
     print('Calling MQTT-Wrapper to receive a Device Code & trigger Auth process...')
-    device_code_res = requests.get(endpoint + '/auth/device').json()
+    device_code_res = requests.get('http://' + endpoint + '/auth/device').json()
     device_code = device_code_res['device_code']
     print('Device Code received & saved in Memory: ' + device_code)
 
@@ -26,7 +27,7 @@ def get_jwt(endpoint):
         payload = {'device_code': device_code}
         token_res = requests.request(
             "POST",
-            endpoint + '/auth/token',
+            'http://' + endpoint + '/auth/token',
             json=payload
         )
         status_code = token_res.status_code
@@ -59,6 +60,9 @@ def on_connect_fail(client, userdata):
     print("failed")
 
 
+if jwt is None:
+    get_jwt(ENDPOINT)
+
 client = mqtt.Client(transport="websockets")
 client.enable_logger()
 client.ws_set_options(path="/mqtt", headers={'Cookie': jwt})
@@ -66,9 +70,6 @@ client.on_connect = on_connect
 client.on_message = on_message
 client.on_connect_fail = on_connect_fail
 client.on_log = print
-
-if jwt is None:
-    get_jwt(ENDPOINT)
 
 client.connect(URL, PORT, 60)
 

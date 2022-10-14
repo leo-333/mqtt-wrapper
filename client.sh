@@ -1,3 +1,4 @@
+#!/bin/sh
 DOMAIN="auth.csp-staging.eng-softwarelabs.de"
 CLIENT_ID="mqtt-wrapper"
 REALM="default"
