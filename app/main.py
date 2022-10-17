@@ -2,19 +2,24 @@ from base64 import b64decode
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
 from pydantic import BaseModel
+import uvicorn
 import requests
 import jwt
 from cryptography.hazmat.primitives import serialization
 import smtplib, ssl
 from email.mime.text import MIMEText
-# import paho.mqtt.client as mqtt
-from websocket import create_connection
+import websockets
 import ssl
 
 # Import local libs
 import utils
 
 app = FastAPI()
+
+# TODO use gunicorn and tune it for prod release
+# TODO remove reload for prod
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", reload=True, port=8000, ws_ping_timeout=None, ws_ping_interval=None, ws="websockets", app_dir="/app/src")
 
 # TODO set all of these as ENV-VARs
 KEYCLOAK_URL = "https://auth.csp-staging.eng-softwarelabs.de"
@@ -100,9 +105,8 @@ async def websocket_endpoint(
         try:
             # Check Header for JWT
             cookie = None
-            print(ws_client.headers)
-            cookie = ws_client.headers["Cookie"]
-            print(cookie)
+            client_handshake_headers = ws_client.headers
+            cookie = client_handshake_headers["Cookie"]
             if cookie is None:
                 print("JWT missing")
                 print("Send CONNACK with Result Code 4 - Authorization invalid")
@@ -121,50 +125,46 @@ async def websocket_endpoint(
             print("JWT valid")
 
             # Authorization to MQTT-Wrapper was successful
-            initial_connection_data = await ws_client.receive_bytes()
             print("Receiving data from client...")
-            print(initial_connection_data)
+            initial_connection_data = await ws_client.receive_bytes()
 
             # # Create a Connection to VerneMQ
             print("Creating WS Connection to VerneMQ...")
-            ws_vernemq = create_connection(VERNEMQ_URL + ':' + str(VERNEMQ_PORT))
+
+            ws_vernemq = await websockets.connect(
+                VERNEMQ_URL + ':' + str(VERNEMQ_PORT) + '/mqtt',
+                subprotocols=['mqtt']
+            )
 
             print("Sending client-data to VerneMQ...")
-            await ws_vernemq.send_bytes(initial_connection_data)
+            print(initial_connection_data)
+            await ws_vernemq.send(initial_connection_data)
             print('Receiving answer from VerneMQ...')
-            initial_connection_answer = await ws_vernemq.receive_bytes()
+            initial_connection_answer = await ws_vernemq.recv()
             print(initial_connection_answer)
             print('Sending answer to client...')
             await ws_client.send_bytes(initial_connection_answer)
 
-            # def on_message(client, userdata, msg):
-            #     # Proxy MQTT Request to VerneMQ
-            #     await websocket.send_bytes()
-            #
-            # client = mqtt.Client(transport="websockets")
-            # client.enable_logger()
-            # # client.ws_set_options(path="/mqtt")
-            # client.on_message = on_message
-            # client.on_connect = print
-            # client.on_connect_fail = print
-            # client.on_log = print
-            #
-            # client.connect(VERNEMQ_URL, VERNEMQ_PORT, 60)
-
             # Enter the Proxy-Loop
+            # TODO keep alive <websocket connection with client
+            # asyncio.create_task(utils.ping(ws_client))
+            print("Proxy Connection started, entering proxy loop...")
             while True:
+                print("Receiving data from client...")
                 data = await ws_client.receive_bytes()
                 print(data)
-                ws_vernemq.send_bytes(data)
-                answer = await ws_vernemq.receive_bytes()
+                print("Sending client data to VerneMQ...")
+                await ws_vernemq.send(data)
+                print('Receiving answer from VerneMQ...')
+                answer = await ws_vernemq.recv()
                 print(answer)
+                print("Sending VerneMQ answer to Client...")
                 await ws_client.send_bytes(answer)
 
-
         except WebSocketDisconnect:
-            print("Client has disconnected.")
+            print("Client has disconnected from WebSocket.")
             if ws_vernemq is not None:
-                ws_vernemq.close()
+                await ws_vernemq.close()
             break
 
 

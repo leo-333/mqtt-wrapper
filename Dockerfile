@@ -1,4 +1,4 @@
-FROM tiangolo/uvicorn-gunicorn-fastapi:python3.8
+FROM python:3.9
 
 WORKDIR /app
 RUN python -m venv .venv
@@ -12,4 +12,4 @@ COPY ./app /app/src
 
 WORKDIR /app/src
 
-CMD ["uvicorn", "main:app", "--app-dir", "/app/src", "--reload", "--host", "0.0.0.0","--port","8000"]
+CMD ["python", "main.py"]
