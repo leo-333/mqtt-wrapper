@@ -19,5 +19,7 @@ wrapt==1.11.2
 uvloop==0.14.0
 requests==2.27.1
 pyjwt==2.5.0
+python_jwt==4.0.0
 paho-mqtt==1.6.1
 cryptography==37.0.4
+jwcrypto==1.4.2

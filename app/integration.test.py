@@ -11,14 +11,13 @@ ENDPOINT = URL + ':' + str(PORT)
 
 # Current Record: 300
 # TODO: track current client connections as metric
-CLIENT_CONNECTIONS = 10
+CLIENT_CONNECTIONS = 1
 CLIENT_EXECUTION_DURATION = 100
 CLIENT_USE_SAME_JWT = True
 
 
-def get_jwt(endpoint, client_id):
-
-    jwt = read_token(client_id)
+def get_jwt(endpoint, client_index):
+    jwt = read_token(client_index)
     if jwt is not None:
         return jwt
 
@@ -47,7 +46,7 @@ def get_jwt(endpoint, client_id):
     print('JWT received')
     print(token_res.json())
 
-    save_token(token_res.json(), client_id)
+    save_token(token_res.json(), client_index)
 
     return token_res.json()['access_token']
 
@@ -96,11 +95,11 @@ def on_connect_fail(client, userdata):
 
 
 def start_client(client_index):
-    jwt = get_jwt(ENDPOINT, i)
+    jwt = get_jwt(ENDPOINT, client_index)
 
     client = mqtt.Client(transport="websockets")
     client.enable_logger()
-    client.ws_set_options(path="/mqtt", headers={'Cookie': jwt[i]})
+    client.ws_set_options(path="/mqtt", headers={'Cookie': jwt})
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.on_message = on_message
