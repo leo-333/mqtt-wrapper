@@ -1,9 +1,11 @@
 import time
+
 import jwt as jwt_lib
 import threading
 import paho.mqtt.client as mqtt
 import requests
 import json
+import utils
 
 URL = 'localhost'
 PORT = 8000
@@ -51,25 +53,48 @@ def get_jwt(endpoint, client_index):
     return token_res.json()['access_token']
 
 
-def save_token(token, client_id):
-    with open('token-' + str(client_id) + '.json', 'w', encoding='utf-8') as f:
+def save_token(token, client_index):
+    with open('token-' + str(client_index) + '.json', 'w', encoding='utf-8') as f:
         json.dump(token, f, ensure_ascii=False, indent=4)
 
 
-def read_token(client_id):
+def read_token(client_index):
     try:
-        with open('token-' + str(client_id) + '.json') as infile:
+        with open('token-' + str(client_index) + '.json') as infile:
             jwt_from_file = json.load(infile)
 
         token = jwt_from_file['access_token']
         # Check if token is still valid
-        #if time.time() > float(token['exp']):
-         #   print('Saved Token has expired')
-          #  return None
+        try:
+            utils.verify_jwt(token, None)
+        except jwt_lib.exceptions.PyJWTError as err:
+            # JWT expired, try refreshing it
+            return None
 
         return token
     except FileNotFoundError:
         return None
+
+
+def refresh_token(jwt, endpoint, client_index):
+    payload = {'refresh_token': jwt['refresh_token']}
+    token_res = requests.request(
+        "POST",
+        'http://' + endpoint + '/auth/token',
+        json=payload
+    )
+    status_code = token_res.status_code
+
+    if status_code != 200:
+        print("Refreshing Token failed")
+        return None
+
+    print('JWT received')
+    print(token_res.json())
+
+    save_token(token_res.json(), client_index)
+
+    return token_res.json()['access_token']
 
 
 # The callback for when the client receives a CONNACK response from the server.

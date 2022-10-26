@@ -1,4 +1,3 @@
-import time
 from base64 import b64decode
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
@@ -11,28 +10,33 @@ import smtplib, ssl
 from email.mime.text import MIMEText
 import websockets
 import ssl
+import logging
 
 # Import local libs
 import utils
 
+# create a logger
+logger = logging.getLogger('mqtt_wrapper_logger')
+# set logging level
+logger.setLevel(logging.DEBUG)
+
+file_handler = logging.FileHandler('mqtt-wrapper.log')
+stream_handler = logging.StreamHandler()
+# create a logging format
+logging_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+formatter = logging.Formatter(logging_format)
+file_handler.setFormatter(formatter)
+stream_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
+
 app = FastAPI()
 
 # TODO use gunicorn and tune it for prod release
-# TODO remove reload for prod
-if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        loop='asyncio',
-        reload=True,
-        port=8000,
-        ws_ping_timeout=None,
-        ws_ping_interval=None,
-        ws="websockets",
-        app_dir="/app/src"
-    )
+# TODO exchange logger.debug statements for proper logging
 
 # ENV-Vars
+HOT_RELOAD = utils.env_var('HOT_RELOAD', default=False)
 KEYCLOAK_URL = utils.env_var('KEYCLOAK_URL', 'https://auth.csp-staging.eng-softwarelabs.de')
 RESOURCE_OWNER_MAIL = utils.env_var('RESOURCE_OWNER_MAIL', "jonas.leitner@eng-its.de")
 CLIENT_ID = utils.env_var('CLIENT_ID', "mqtt-wrapper")
@@ -55,6 +59,19 @@ PUB_KEY_ENDPOINT = "/auth/realms/default"
 # Global Variables
 keycloak_pub_key = None
 
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        loop='asyncio',
+        reload=HOT_RELOAD,
+        port=8000,
+        ws_ping_timeout=None,
+        ws_ping_interval=None,
+        ws="websockets",
+        app_dir="/app/src"
+    )
+
 
 # TODO refresh this from time to time / or just restart the app once in a while
 @app.on_event("startup")
@@ -68,7 +85,7 @@ async def startup_event():
         key_der = b64decode(key_der_base64.encode())
         keycloak_pub_key = serialization.load_der_public_key(key_der)
     except requests.exceptions.RequestException:
-        print('Keycloak cannot be reached, exiting...')
+        logger.critical('Keycloak cannot be reached, exiting...')
         exit(1)
 
 
@@ -88,22 +105,23 @@ async def get_device_code():
             smtp_port=SMTP_PORT,
             smtp_password=SMTP_PASSWORD
         )
-    except smtplib.SMTPAuthenticationError:
-        print("SMTP Auth failed")
+    except smtplib.SMTPAuthenticationError as err:
+        logger.error("SMTP Auth failed")
+        logger.error(err)
 
     # Return Keycloak Response to Device
     return keycloak_res
 
 
 # HTTP Endpoint for getting a Token from Keycloak using the Device Code (works only after Authorization from User)
-class TokenReq(BaseModel):
+class CreateTokenReq(BaseModel):
     device_code: str
 
 
 # TODO: test if simultaneous devices polling the endpoint trigger the ratelimit
 @app.post("/auth/token")
-async def get_token(token_req: TokenReq, res: Response):
-    payload = 'client_id=' + CLIENT_ID + '&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&device_code=' + token_req.device_code
+async def get_token(create_token_req: CreateTokenReq, res: Response):
+    payload = 'client_id=' + CLIENT_ID + '&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&device_code=' + create_token_req.device_code
 
     keycloak_res = requests.request(
         "POST",
@@ -119,7 +137,27 @@ async def get_token(token_req: TokenReq, res: Response):
     return keycloak_res.json()
 
 
-# TODO refresh tokens endpoint - longer refresh expiration time
+# HTTP Endpoint for getting fresh Tokens from Keycloak using refresh Tokens
+class RefreshTokenReq(BaseModel):
+    refresh_token: str
+
+
+@app.post("/auth/refresh")
+async def refresh_token(refresh_token_req: RefreshTokenReq, res: Response):
+    payload = 'refresh_token=' + refresh_token_req.refresh_token + '&grant_type=refresh_token&client_id=' + CLIENT_ID
+
+    keycloak_res = requests.request(
+        "POST",
+        KEYCLOAK_URL + TOKEN_ENDPOINT,
+        headers={
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        data=payload
+    )
+
+    res.status_code = keycloak_res.status_code
+
+    return keycloak_res.json()
 
 # WS Endpoint for MQTT Requests from the Device
 # TODO check for JWT expiration once in a while
@@ -136,99 +174,91 @@ async def websocket_endpoint(
             try:
                 cookie = ws_client.headers["Cookie"]
             except KeyError:
-                print("JWT missing")
-                print("Send CONNACK with Result Code 4 - Authorization invalid")
+                logger.info("JWT missing")
+                logger.debug("Send CONNACK with Result Code 4 - Authorization invalid")
                 await ws_client.send_bytes(utils.CONNACK_INVALID_AUTH)
                 await ws_client.close()
                 break
 
             # Verify Authorization
             try:
-                verify_jwt(cookie, keycloak_pub_key)
+                utils.verify_jwt(cookie, keycloak_pub_key)
             except jwt.exceptions.PyJWTError as err:
                 # JWT invalid, send
-                print("JWT invalid")
-                print(err)
-                print("Send CONNACK with Result Code 5 - Not Authorized")
+                logger.info("JWT invalid")
+                logger.debug(err)
+                logger.debug("Send CONNACK with Result Code 5 - Not Authorized")
                 await ws_client.send_bytes(utils.CONNACK_UNAUTHORIZED)
                 await ws_client.close()
                 break
 
             # JWT valid, send CONNACK
-            print("JWT valid")
+            logger.info("JWT valid")
 
             # Authorization to MQTT-Wrapper was successful
-            print("Receiving data from client...")
+            logger.debug("Receiving data from client...")
             initial_connection_data = await ws_client.receive_bytes()
 
             # # Create a Connection to VerneMQ
-            print("Creating WS Connection to VerneMQ...")
+            logger.debug("Creating WS Connection to VerneMQ...")
 
             ws_vernemq = await websockets.connect(
                 VERNEMQ_URL + ':' + str(VERNEMQ_PORT) + '/mqtt',
                 subprotocols=['mqtt']
             )
 
-            print("Sending client-data to VerneMQ...")
-            print(initial_connection_data)
+            logger.debug("Sending client-data to VerneMQ...")
+            logger.debug(initial_connection_data)
             await ws_vernemq.send(initial_connection_data)
-            print('Receiving answer from VerneMQ...')
+            logger.debug('Receiving answer from VerneMQ...')
             initial_connection_answer = await ws_vernemq.recv()
-            print(initial_connection_answer)
-            print('Sending answer to client...')
+            logger.debug(initial_connection_answer)
+            logger.debug('Sending answer to client...')
             await ws_client.send_bytes(initial_connection_answer)
 
             # Enter the Proxy-Loop
             # TODO document WS-Tunneling
-            print("Proxy Connection started, entering proxy loop...")
+            logger.debug("Proxy Connection started, entering proxy loop...")
             while True:
                 # Check if token has expired (or is otherwise invalid) every few requests
                 try:
-                    verify_jwt(cookie, keycloak_pub_key)
+                    utils.verify_jwt(cookie, keycloak_pub_key)
                 except jwt.exceptions.PyJWTError as err:
                     # JWT invalid, send
-                    print("JWT invalid")
-                    print(err)
-                    print("Send CONNACK with Result Code 5 - Not Authorized")
+                    logger.debug("JWT invalid")
+                    logger.debug(err)
+                    logger.debug("Send CONNACK with Result Code 5 - Not Authorized")
                     await ws_client.send_bytes(utils.CONNACK_UNAUTHORIZED)
                     await ws_client.close()
                     await ws_vernemq.close()
                     break
 
-                print("Receiving data from client...")
+                logger.debug("Receiving data from client...")
                 data = await ws_client.receive_bytes()
-                print(data)
-                print("Sending client data to VerneMQ...")
+                logger.debug(data)
+                logger.debug("Sending client data to VerneMQ...")
                 await ws_vernemq.send(data)
-                print('Receiving answer from VerneMQ...')
+                logger.debug('Receiving answer from VerneMQ...')
                 answer = await ws_vernemq.recv()
-                print(answer)
-                print("Sending VerneMQ answer to Client...")
+                logger.debug(answer)
+                logger.debug("Sending VerneMQ answer to Client...")
                 await ws_client.send_bytes(answer)
 
-        # TODO test vernemq disconnect
         except WebSocketDisconnect:
-            print("Client has disconnected from WebSocket.")
+            logger.info("Client has disconnected from WebSocket.")
             if ws_vernemq is not None:
                 await ws_vernemq.close()
             break
 
         except websockets.ConnectionClosedError:
-            print("Connection closed by VerneMQ")
+            logger.error("Connection closed by VerneMQ")
             await ws_client.close()
             break
 
 
-def verify_jwt(token, pub_key):
-    # Check if JWT is valid by verifying its signature with Keycloaks PubKey
-    payload = jwt.decode(token, pub_key, algorithms=["RS256"])
-    return payload
-
-
-# TODO test this
 def send_auth_mail(auth_url, sender_email, receiver_email, smtp_proxy, smtp_port, smtp_password):
     # Send an Authorization Email containing the Link returned by Keycloak to the User
-    print("Sending new Auth URL:\n" + auth_url)
+    logger.info("Sending new Auth URL:\n" + auth_url)
     msg = MIMEText(auth_url)
 
     msg['Subject'] = 'New MQTT Authorization Request'
