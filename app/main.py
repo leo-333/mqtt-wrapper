@@ -1,5 +1,6 @@
 from base64 import b64decode
 
+import sys
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
 from pydantic import BaseModel
 import uvicorn
@@ -15,25 +16,21 @@ import logging
 # Import local libs
 import utils
 
-# create a logger
-logger = logging.getLogger('mqtt_wrapper_logger')
-# set logging level
-logger.setLevel(logging.DEBUG)
+file_handler = logging.FileHandler(filename='mqtt-wrapper.log')
+stdout_handler = logging.StreamHandler(stream=sys.stdout)
+handlers = [file_handler, stdout_handler]
 
-file_handler = logging.FileHandler('mqtt-wrapper.log')
-stream_handler = logging.StreamHandler()
-# create a logging format
-logging_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-formatter = logging.Formatter(logging_format)
-file_handler.setFormatter(formatter)
-stream_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
+    handlers=handlers
+)
+
+logger = logging.getLogger('MQTT_WRAPPER')
 
 app = FastAPI()
 
 # TODO use gunicorn and tune it for prod release
-# TODO exchange logger.debug statements for proper logging
 
 # ENV-Vars
 HOT_RELOAD = utils.env_var('HOT_RELOAD', default=False)
@@ -159,8 +156,8 @@ async def refresh_token(refresh_token_req: RefreshTokenReq, res: Response):
 
     return keycloak_res.json()
 
+
 # WS Endpoint for MQTT Requests from the Device
-# TODO check for JWT expiration once in a while
 @app.websocket("/mqtt")
 async def websocket_endpoint(
         ws_client: WebSocket
@@ -184,7 +181,7 @@ async def websocket_endpoint(
             try:
                 utils.verify_jwt(cookie, keycloak_pub_key)
             except jwt.exceptions.PyJWTError as err:
-                # JWT invalid, send
+                # JWT invalid
                 logger.info("JWT invalid")
                 logger.debug(err)
                 logger.debug("Send CONNACK with Result Code 5 - Not Authorized")
@@ -225,10 +222,10 @@ async def websocket_endpoint(
                     utils.verify_jwt(cookie, keycloak_pub_key)
                 except jwt.exceptions.PyJWTError as err:
                     # JWT invalid, send
-                    logger.debug("JWT invalid")
+                    logger.debug("JWT expired")
                     logger.debug(err)
-                    logger.debug("Send CONNACK with Result Code 5 - Not Authorized")
-                    await ws_client.send_bytes(utils.CONNACK_UNAUTHORIZED)
+                    logger.debug("Send DISCONNECT")
+                    await ws_client.send_bytes(utils.DISCONNECT)
                     await ws_client.close()
                     await ws_vernemq.close()
                     break

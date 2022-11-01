@@ -2,9 +2,11 @@ import os
 import jwt
 
 # Hardcoded MQTT ConnackResponses as Bytecode
+# Can be generated here https://runkit.com/embed/3x84f4ekrdu7
 CONNACK_ACCEPTED = b'\x20\x02\x00\x00'
 CONNACK_INVALID_AUTH = b'\x20\x02\x00\x04'
 CONNACK_UNAUTHORIZED = b'\x20\x02\x00\x05'
+DISCONNECT = b'\xE0\x00'
 
 
 # Fetch an EnvVar or die tryin'

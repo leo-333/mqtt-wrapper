@@ -2,6 +2,8 @@ import time
 
 import jwt as jwt_lib
 import threading
+
+import paho.mqtt.client
 import paho.mqtt.client as mqtt
 import requests
 import json
@@ -18,13 +20,14 @@ CLIENT_EXECUTION_DURATION = 100
 CLIENT_USE_SAME_JWT = True
 
 
-def get_jwt(endpoint, client_index):
-    jwt = read_token(client_index)
+def get_jwt(client_index):
+    global ENDPOINT
+    jwt = read_token(client_index, ENDPOINT)
     if jwt is not None:
         return jwt
 
     print('Calling MQTT-Wrapper to receive a Device Code & trigger Auth process...')
-    device_code_res = requests.get('http://' + endpoint + '/auth/device').json()
+    device_code_res = requests.get('http://' + ENDPOINT + '/auth/device').json()
     device_code = device_code_res['device_code']
     print('Device Code received & saved in Memory: ' + device_code)
 
@@ -35,7 +38,7 @@ def get_jwt(endpoint, client_index):
         payload = {'device_code': device_code}
         token_res = requests.request(
             "POST",
-            'http://' + endpoint + '/auth/token',
+            'http://' + ENDPOINT + '/auth/token',
             json=payload
         )
         status_code = token_res.status_code
@@ -58,7 +61,7 @@ def save_token(token, client_index):
         json.dump(token, f, ensure_ascii=False, indent=4)
 
 
-def read_token(client_index):
+def read_token(client_index, endpoint):
     try:
         with open('token-' + str(client_index) + '.json') as infile:
             jwt_from_file = json.load(infile)
@@ -68,8 +71,8 @@ def read_token(client_index):
         try:
             utils.verify_jwt(token, None)
         except jwt_lib.exceptions.PyJWTError as err:
-            # JWT expired, try refreshing it
-            return None
+            print('JWT expired, trying to refresh it')
+            return refresh_token(jwt_from_file, endpoint, client_index)
 
         return token
     except FileNotFoundError:
@@ -80,7 +83,7 @@ def refresh_token(jwt, endpoint, client_index):
     payload = {'refresh_token': jwt['refresh_token']}
     token_res = requests.request(
         "POST",
-        'http://' + endpoint + '/auth/token',
+        'http://' + endpoint + '/auth/refresh',
         json=payload
     )
     status_code = token_res.status_code
@@ -100,14 +103,19 @@ def refresh_token(jwt, endpoint, client_index):
 # The callback for when the client receives a CONNACK response from the server.
 def on_connect(client, userdata, flags, rc):
     print(str(int(time.time())) + ": Connected with result code " + str(rc))
+    print(client)
 
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
-    client.subscribe("$SYS/#")
+    #client.subscribe("$SYS/#")
 
 
 def on_disconnect(client, userdata, rc):
     print(str(time.time()) + ": Disconnected with result code " + str(rc))
+    print("Trying to reconnect...")
+    start_client(userdata, False)
+
+
 
 
 # The callback for when a PUBLISH message is received from the server.
@@ -119,10 +127,10 @@ def on_connect_fail(client, userdata):
     print("connection failed")
 
 
-def start_client(client_index):
-    jwt = get_jwt(ENDPOINT, client_index)
+def start_client(client_index, root_thread):
+    jwt = get_jwt(client_index)
 
-    client = mqtt.Client(transport="websockets")
+    client = mqtt.Client(userdata=client_index, transport="websockets")
     client.enable_logger()
     client.ws_set_options(path="/mqtt", headers={'Cookie': jwt})
     client.on_connect = on_connect
@@ -131,14 +139,14 @@ def start_client(client_index):
     client.on_connect_fail = on_connect_fail
     client.on_log = print
 
-    # print("waiting for token to expire...")
-    # time.sleep(60)
-
     client.connect(URL, PORT, 10)
 
     client.loop_start()
 
-    time.sleep(CLIENT_EXECUTION_DURATION)
+    # Only wait for the first execution to finish
+    # so that subsequent executions (during JWT renewals) don't make the execution any longer
+    if root_thread is True:
+        time.sleep(CLIENT_EXECUTION_DURATION)
 
 
 # Start all Clients
@@ -149,11 +157,11 @@ for i in range(CLIENT_CONNECTIONS):
     if CLIENT_USE_SAME_JWT:
         client_id = 1
 
-    client_thread = threading.Thread(target=start_client, args=(client_id,))
+    client_thread = threading.Thread(target=start_client, args=(client_id, True))
     client_thread_pool.append(client_thread)
     client_thread.start()
 
-# wait until thread 1 is completely executed
+# wait until all client threads are executed
 for client_thread in client_thread_pool:
     # join client threads
     client_thread.join()
