@@ -1,0 +1,28 @@
+version: '3.7'
+
+services:
+  app:
+    image: mqtt-wrapper:0.1
+    build:
+      context: .
+    environment:
+      # This Email Adress will receive all Auth Emails from the MQTT-Wrapper
+      RESOURCE_OWNER_MAIL: 'jonas.leitner@eng-its.de'
+
+      # Keycloak
+      KEYCLOAK_URL: 'https://auth.csp-staging.eng-softwarelabs.de'
+      CLIENT_ID: 'mqtt-wrapper'
+      REALM: 'default'
+
+      # VerneMQ
+      VERNEMQ_URL: 'ws://vernemq'
+      VERNEMQ_PORT: 8080
+
+      # SMTP Proxy Credentials
+      SMTP_SENDER_EMAIL: 'noreply@dlr.de'
+      SMTP_PASSWORD: '1234'
+      SMTP_PROXY: 'smtp.gmail.com'
+      SMTP_PORT: 465
+
+    ports:
+      - '8000:8000'

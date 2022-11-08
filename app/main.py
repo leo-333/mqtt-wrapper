@@ -35,7 +35,6 @@ app = FastAPI()
 # ENV-Vars
 HOT_RELOAD = utils.env_var('HOT_RELOAD', default=False)
 KEYCLOAK_URL = utils.env_var('KEYCLOAK_URL', 'https://auth.csp-staging.eng-softwarelabs.de')
-RESOURCE_OWNER_MAIL = utils.env_var('RESOURCE_OWNER_MAIL', "jonas.leitner@eng-its.de")
 CLIENT_ID = utils.env_var('CLIENT_ID', "mqtt-wrapper")
 REALM = utils.env_var('REALM', "default")
 VERNEMQ_URL = utils.env_var('VERNEMQ_URL', "ws://vernemq")
@@ -46,7 +45,7 @@ SMTP_SENDER_EMAIL = utils.env_var('SMTP_SENDER_EMAIL', "noreply@dlr.de")
 SMTP_PASSWORD = utils.env_var('SMTP_PASSWORD', "1234")
 SMTP_PROXY = utils.env_var('SMTP_PROXY', "smtp.gmail.com")
 SMTP_PORT = utils.env_var('SMTP_PORT', 465)
-SMTP_RECEIVER = utils.env_var('SMTP_RECEIVER', "jonas.leitner@eng-its.de")
+RESOURCE_OWNER_MAIL = utils.env_var('RESOURCE_OWNER_MAIL', "jonas.leitner@eng-its.de")
 
 # Hardcoded Keycloak Endpoints
 DEVICE_CODE_ENDPOINT = "/auth/realms/" + REALM + "/protocol/openid-connect/auth/device"
@@ -70,7 +69,6 @@ if __name__ == "__main__":
     )
 
 
-# TODO refresh this from time to time / or just restart the app once in a while
 @app.on_event("startup")
 async def startup_event():
     global keycloak_pub_key
@@ -89,7 +87,7 @@ async def startup_event():
 # HTTP Endpoint for getting a Device Code from Keycloak
 @app.get("/auth/device")
 async def get_device_code():
-    global SMTP_RECEIVER, SMTP_PASSWORD, SMTP_PORT, SMTP_PROXY, SMTP_SENDER_EMAIL
+    global RESOURCE_OWNER_MAIL, SMTP_PASSWORD, SMTP_PORT, SMTP_PROXY, SMTP_SENDER_EMAIL
     # Proxy Request to Keycloak
     keycloak_res = requests.post(KEYCLOAK_URL + DEVICE_CODE_ENDPOINT, {"client_id": CLIENT_ID}).json()
     # Mail Auth URL to the User
@@ -97,7 +95,7 @@ async def get_device_code():
         send_auth_mail(
             auth_url=keycloak_res['verification_uri_complete'],
             sender_email=SMTP_SENDER_EMAIL,
-            receiver_email=SMTP_RECEIVER,
+            receiver_email=RESOURCE_OWNER_MAIL,
             smtp_proxy=SMTP_PROXY,
             smtp_port=SMTP_PORT,
             smtp_password=SMTP_PASSWORD
@@ -171,7 +169,7 @@ async def websocket_endpoint(
             try:
                 cookie = ws_client.headers["Cookie"]
             except KeyError:
-                logger.info("JWT missing")
+                logger.warning("JWT missing")
                 logger.debug("Send CONNACK with Result Code 4 - Authorization invalid")
                 await ws_client.send_bytes(utils.CONNACK_INVALID_AUTH)
                 await ws_client.close()
@@ -182,7 +180,7 @@ async def websocket_endpoint(
                 utils.verify_jwt(cookie, keycloak_pub_key)
             except jwt.exceptions.PyJWTError as err:
                 # JWT invalid
-                logger.info("JWT invalid")
+                logger.warning("JWT invalid")
                 logger.debug(err)
                 logger.debug("Send CONNACK with Result Code 5 - Not Authorized")
                 await ws_client.send_bytes(utils.CONNACK_UNAUTHORIZED)
@@ -222,7 +220,7 @@ async def websocket_endpoint(
                     utils.verify_jwt(cookie, keycloak_pub_key)
                 except jwt.exceptions.PyJWTError as err:
                     # JWT invalid, send
-                    logger.debug("JWT expired")
+                    logger.warning("JWT expired")
                     logger.debug(err)
                     logger.debug("Send DISCONNECT")
                     await ws_client.send_bytes(utils.DISCONNECT)
@@ -242,7 +240,7 @@ async def websocket_endpoint(
                 await ws_client.send_bytes(answer)
 
         except WebSocketDisconnect:
-            logger.info("Client has disconnected from WebSocket.")
+            logger.warning("Client has disconnected from WebSocket.")
             if ws_vernemq is not None:
                 await ws_vernemq.close()
             break

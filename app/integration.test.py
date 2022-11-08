@@ -15,9 +15,9 @@ ENDPOINT = URL + ':' + str(PORT)
 
 # Current Record: 300
 # TODO: track current client connections as metric
-CLIENT_CONNECTIONS = 1
+CLIENT_CONNECTIONS = 5
 CLIENT_EXECUTION_DURATION = 100
-CLIENT_USE_SAME_JWT = True
+CLIENT_USE_SAME_JWT = False
 
 
 def get_jwt(client_index):

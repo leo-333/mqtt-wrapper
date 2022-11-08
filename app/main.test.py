@@ -31,6 +31,9 @@ class MQTTWrapperTestCases(unittest.TestCase):
             time.sleep(2)
             main.verify_jwt(token, key)
 
+
+
+
     # def test_auth_email_auth_fail(self):
     #     with self.assertRaises(smtplib.SMTPAuthenticationError):
     #         main.send_auth_mail(
