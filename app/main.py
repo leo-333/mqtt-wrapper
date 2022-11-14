@@ -33,6 +33,7 @@ app = FastAPI()
 # TODO use gunicorn and tune it for prod release
 
 # ENV-Vars
+PORT = utils.env_var('PORT', default=8000)
 HOT_RELOAD = utils.env_var('HOT_RELOAD', default=False)
 KEYCLOAK_URL = utils.env_var('KEYCLOAK_URL', 'https://auth.csp-staging.eng-softwarelabs.de')
 CLIENT_ID = utils.env_var('CLIENT_ID', "mqtt-wrapper")
@@ -61,7 +62,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
         loop='asyncio',
         reload=HOT_RELOAD,
-        port=8000,
+        port=int(PORT),
         ws_ping_timeout=None,
         ws_ping_interval=None,
         ws="websockets",
