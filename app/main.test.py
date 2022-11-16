@@ -1,6 +1,6 @@
 import smtplib
 import unittest
-import main
+import utils
 import python_jwt as create_jwt, jwcrypto.jwk as jwk, datetime
 import jwt
 import time
@@ -12,7 +12,7 @@ class MQTTWrapperTestCases(unittest.TestCase):
         payload = {'content': 'test'}
         key, token = generate_jwt(payload)
 
-        self.assertEqual(main.verify_jwt(token, key)['content'], payload['content'])
+        self.assertEqual(utils.verify_jwt(token, key)['content'], payload['content'])
 
     def test_verify_invalid_jwt(self):
         # Test Invalid Signature
@@ -20,7 +20,7 @@ class MQTTWrapperTestCases(unittest.TestCase):
             payload = {'content': 'test'}
             key, token = generate_jwt(payload)
             token = token + 'a'
-            main.verify_jwt(token, key)
+            utils.verify_jwt(token, key)
 
     def test_verify_expired_jwt(self):
         # Test Invalid Signature
@@ -29,7 +29,7 @@ class MQTTWrapperTestCases(unittest.TestCase):
             key, token = generate_jwt(payload, lifetime=1)
             # wait for jwt to expire
             time.sleep(2)
-            main.verify_jwt(token, key)
+            utils.verify_jwt(token, key)
 
 
 
