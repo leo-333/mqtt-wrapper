@@ -9,6 +9,7 @@ services:
       SMTP_PASSWORD: 'asdf'
       SMTP_SENDER_EMAIL: 'asdf@gmail.com'
       SMTP_PROXY: 'smtp.gmail.com'
+      KEYCLOAK_URL: 'https://auth.dlr.wobcom.tech'
       HOT_RELOAD: 'true'
     ports:
       - '8000:8000'

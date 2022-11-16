@@ -87,14 +87,30 @@ async def startup_event():
 
 # HTTP Endpoint for getting a Device Code from Keycloak
 @app.get("/auth/device")
-async def get_device_code():
+async def get_device_code(res: Response):
     global RESOURCE_OWNER_MAIL, SMTP_PASSWORD, SMTP_PORT, SMTP_PROXY, SMTP_SENDER_EMAIL
+
+    logger.debug('Getting Device Code from Keycloak')
     # Proxy Request to Keycloak
-    keycloak_res = requests.post(KEYCLOAK_URL + DEVICE_CODE_ENDPOINT, {"client_id": CLIENT_ID}).json()
+    try:
+        keycloak_res = requests.post(KEYCLOAK_URL + DEVICE_CODE_ENDPOINT, {"client_id": CLIENT_ID})
+    except requests.exceptions.ConnectionError as e:
+        logger.warning('Connection Error to Keycloak occured')
+        res.status_code = 400
+        res = {'error': 'HTTP Error while communicating with Keycloak'}
+        return res
+
+    res.status_code = keycloak_res.status_code
+
+    if keycloak_res.status_code != 200:
+        logger.info('Token Request failed')
+        logger.debug(keycloak_res.json())
+        return keycloak_res.json()
+
     # Mail Auth URL to the User
     try:
         send_auth_mail(
-            auth_url=keycloak_res['verification_uri_complete'],
+            auth_url=keycloak_res.json()['verification_uri_complete'],
             sender_email=SMTP_SENDER_EMAIL,
             receiver_email=RESOURCE_OWNER_MAIL,
             smtp_proxy=SMTP_PROXY,
@@ -106,7 +122,7 @@ async def get_device_code():
         logger.error(err)
 
     # Return Keycloak Response to Device
-    return keycloak_res
+    return keycloak_res.json()
 
 
 # HTTP Endpoint for getting a Token from Keycloak using the Device Code (works only after Authorization from User)
@@ -117,16 +133,27 @@ class CreateTokenReq(BaseModel):
 # TODO: test if simultaneous devices polling the endpoint trigger the ratelimit
 @app.post("/auth/token")
 async def get_token(create_token_req: CreateTokenReq, res: Response):
+    logger.debug("Getting JWT from Keycloak")
     payload = 'client_id=' + CLIENT_ID + '&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&device_code=' + create_token_req.device_code
 
-    keycloak_res = requests.request(
-        "POST",
-        KEYCLOAK_URL + TOKEN_ENDPOINT,
-        headers={
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        data=payload
-    )
+    try:
+        keycloak_res = requests.request(
+            "POST",
+            KEYCLOAK_URL + TOKEN_ENDPOINT,
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            data=payload
+        )
+    except requests.exceptions.ConnectionError as e:
+        logger.warning('Connection Error to Keycloak occured')
+        res.status_code = 400
+        res = {'error': 'HTTP Error while communicating with Keycloak'}
+        return res
+
+    if keycloak_res.status_code != 200:
+        logger.info('Token Request failed')
+        logger.debug(keycloak_res.json())
 
     res.status_code = keycloak_res.status_code
 
@@ -140,16 +167,28 @@ class RefreshTokenReq(BaseModel):
 
 @app.post("/auth/refresh")
 async def refresh_token(refresh_token_req: RefreshTokenReq, res: Response):
+    logger.debug('Refreshing JWT Token')
+
     payload = 'refresh_token=' + refresh_token_req.refresh_token + '&grant_type=refresh_token&client_id=' + CLIENT_ID
 
-    keycloak_res = requests.request(
-        "POST",
-        KEYCLOAK_URL + TOKEN_ENDPOINT,
-        headers={
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        data=payload
-    )
+    try:
+        keycloak_res = requests.request(
+            "POST",
+            KEYCLOAK_URL + TOKEN_ENDPOINT,
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            data=payload
+        )
+    except requests.exceptions.ConnectionError as e:
+        logger.warning('Connection Error to Keycloak occured')
+        res.status_code = 400
+        res = {'error': 'HTTP Error while communicating with Keycloak'}
+        return res
+
+    if keycloak_res.status_code != 200:
+        logger.info('Token Refresh failed')
+        logger.debug(keycloak_res.json())
 
     res.status_code = keycloak_res.status_code
 
