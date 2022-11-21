@@ -28,7 +28,10 @@ logging.basicConfig(
 
 logger = logging.getLogger('MQTT_WRAPPER')
 
-app = FastAPI()
+app = FastAPI(
+    docs_url=None,
+    redoc_url=None
+)
 
 # TODO use gunicorn and tune it for prod release
 
@@ -86,6 +89,7 @@ async def startup_event():
 
 
 # HTTP Endpoint for getting a Device Code from Keycloak
+# TODO obfusctate URL / add token
 @app.get("/auth/device")
 async def get_device_code(res: Response):
     global RESOURCE_OWNER_MAIL, SMTP_PASSWORD, SMTP_PORT, SMTP_PROXY, SMTP_SENDER_EMAIL
