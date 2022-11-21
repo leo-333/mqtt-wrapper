@@ -9,6 +9,7 @@ import requests
 import json
 import utils
 
+# URL = 'mqtt-wrapper-cluster.berlin-main.tdg.openxedge.net'
 URL = 'localhost'
 PORT = 8000
 ENDPOINT = URL + ':' + str(PORT)
@@ -107,7 +108,7 @@ def on_connect(client, userdata, flags, rc):
 
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
-    #client.subscribe("$SYS/#")
+    client.subscribe("$SYS/#")
 
 
 def on_disconnect(client, userdata, rc):
