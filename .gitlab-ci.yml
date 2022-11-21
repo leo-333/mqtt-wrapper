@@ -7,10 +7,9 @@ pytest:
     before_script:
         - pip install -r requirements.txt
     script:
-        - ls -a
         - cd app/
         - ls -a
-        - python -m junitxml
+        - python -m junitxml discover
     artifacts:
         when: always
         reports:
