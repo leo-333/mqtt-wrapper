@@ -7,6 +7,7 @@ pytest:
     before_script:
         - pip install -r requirements.txt
     script:
+        - ls -a
         - cd app/
         - python -m junitxml
     artifacts:
