@@ -8,8 +8,7 @@ pytest:
         - pip install -r requirements.txt
     script:
         - cd app/
-        - ls -a
-        - python -m junitxml discover
+        - python -m junitxml.main
     artifacts:
         when: always
         reports:
