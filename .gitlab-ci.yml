@@ -9,6 +9,7 @@ pytest:
     script:
         - ls -a
         - cd app/
+        - ls -a
         - python -m junitxml
     artifacts:
         when: always
