@@ -1,3 +1,6 @@
+import http
+import http
+import time
 from base64 import b64decode
 
 import sys
@@ -293,6 +296,12 @@ async def websocket_endpoint(
             logger.error("Connection closed by VerneMQ")
             await ws_client.close()
             break
+
+
+# Tarpit for all probing requests
+@app.api_route('/{full_path:path}', status_code=http.HTTPStatus.IM_A_TEAPOT)
+def tarpit():
+    time.sleep(30)
 
 
 def send_auth_mail(auth_url, sender_email, receiver_email, smtp_proxy, smtp_port, smtp_password):
